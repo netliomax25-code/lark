@@ -336,6 +336,39 @@ class TestGrammar(TestCase):
 """)
 
 
+    def test_terminal_literal_backtracking(self):
+        # The STRING and REGEXP grammar terminals used an ambiguous
+        # alternation (`\\"|\\\\|[^"\n]`), so an unterminated literal made of
+        # backslashes forced the regex engine into exponential backtracking
+        # while loading the grammar. A ~60 character grammar used to run for
+        # longer than the age of the universe.
+        import threading
+
+        def load(grammar):
+            done = []
+            t = threading.Thread(target=lambda: done.append(self._try_load(grammar)))
+            t.daemon = True
+            t.start()
+            t.join(5)
+            self.assertFalse(t.is_alive(), "grammar loading did not terminate: %r" % grammar)
+
+        load('start: "' + '\\' * 60 + '\n')
+        load('start: /' + '\\' * 60 + '\n')
+
+        # valid escaped literals must still compile and match as before
+        p = Lark(r'start: "a\"b"', parser='lalr')
+        self.assertEqual(p.parse('a"b'), Tree('start', []))
+        p = Lark('start: A\nA: /a\\/b/', parser='lalr')
+        self.assertEqual(p.parse('a/b'), Tree('start', [Token('A', 'a/b')]))
+
+    @staticmethod
+    def _try_load(grammar):
+        try:
+            Lark(grammar)
+        except Exception:
+            pass
+        return True
+
     def test_symbol_eq(self):
         a = None
         b = Symbol("abc")
