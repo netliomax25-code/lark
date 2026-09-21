@@ -362,9 +362,12 @@ class FS:
     exists = staticmethod(os.path.exists)
 
     @staticmethod
-    def open(name, mode="r", **kwargs):
+    def open(name, mode="r", unguarded=False, **kwargs):
         if _has_atomicwrites and "w" in mode:
             return atomicwrites.atomic_write(name, mode=mode, overwrite=True, **kwargs)
+        elif unguarded:
+            # The caller opted out of the checks in _open_private (unguarded_cache=True)
+            return open(name, mode, **kwargs)
         else:
             return _open_private(name, mode, **kwargs)
 

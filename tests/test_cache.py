@@ -312,6 +312,30 @@ class TestCacheFile(TestCase):
         with FS.open(self.cache_fn, 'rb') as f:
             self.assertEqual(f.read(), b'data')
 
+    def test_unguarded_cache(self):
+        # The checks are on by default. unguarded_cache=True skips them, and since it
+        # isn't part of the cache key, it loads the file that was already there.
+        g = 'start: "a"'
+        Lark(g, parser='lalr', cache=self.cache_fn)
+        os.chmod(self.cache_fn, 0o666)
+        with patch.object(lark_module, 'load_grammar', wraps=lark_module.load_grammar) as load_grammar:
+            parser = Lark(g, parser='lalr', cache=self.cache_fn, unguarded_cache=True)
+            self.assertEqual(load_grammar.call_count, 0)    # loaded from the cache
+            self.assertEqual(parser.parse('a'), Tree('start', []))
+
+            with self.assertLogs(lark_module.logger, level='WARNING') as cm:
+                parser = Lark(g, parser='lalr', cache=self.cache_fn)
+            self.assertEqual(load_grammar.call_count, 1)    # refused, so rebuilt
+            self.assertTrue(any('Failed to load cache' in r.getMessage() for r in cm.records))
+            self.assertEqual(parser.parse('a'), Tree('start', []))
+
+    def test_unguarded_open_skips_checks(self):
+        with open(self.cache_fn, 'wb') as f:
+            f.write(b'data')
+        os.chmod(self.cache_fn, 0o666)
+        with FS.open(self.cache_fn, 'rb', unguarded=True) as f:
+            self.assertEqual(f.read(), b'data')
+
 
 class TestCacheFilePortable(TestCase):
     # Runs everywhere, including Windows, where the posix-only checks above are skipped:
@@ -335,6 +359,14 @@ class TestCacheFilePortable(TestCase):
             f.write(b'short')
         with FS.open(self.cache_fn, 'rb') as f:
             self.assertEqual(f.read(), b'short')
+
+    def test_unguarded_cache_roundtrip(self):
+        g = 'start: "a"'
+        Lark(g, parser='lalr', cache=self.cache_fn, unguarded_cache=True)
+        with patch.object(lark_module, 'load_grammar', wraps=lark_module.load_grammar) as load_grammar:
+            parser = Lark(g, parser='lalr', cache=self.cache_fn, unguarded_cache=True)
+        self.assertEqual(load_grammar.call_count, 0)
+        self.assertEqual(parser.parse('a'), Tree('start', []))
 
 
 if __name__ == '__main__':

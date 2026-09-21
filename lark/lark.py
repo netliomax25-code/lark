@@ -59,6 +59,7 @@ class LarkOptions(Serialize):
     maybe_placeholders: bool
     cache: Union[bool, str]
     cache_grammar: bool
+    unguarded_cache: bool
     regex: bool
     g_regex_flags: int
     keep_all_tokens: bool
@@ -105,6 +106,13 @@ class LarkOptions(Serialize):
     cache_grammar
             For use with ``cache`` option. When ``True``, the unanalyzed grammar is also included in the cache.
             Useful for classes that require the ``Lark.grammar`` to be present (e.g. Reconstructor).
+            (default= ``False``)
+    unguarded_cache
+            For use with ``cache`` option. By default, Lark won't use a cache file that is a symlink, that belongs
+            to another user, or that other users can write to, and rebuilds the parser instead.
+            When ``True``, these checks are skipped. Useful when the cache file is shared on purpose, or lives on a
+            filesystem that doesn't report ownership or permissions. The cache is a pickle, so loading it can run
+            arbitrary code. Only set this when everyone who can write to the cache path is trusted.
             (default= ``False``)
     regex
             When True, uses the ``regex`` module instead of the stdlib ``re``.
@@ -174,6 +182,7 @@ class LarkOptions(Serialize):
         'tree_class': None,
         'cache': False,
         'cache_grammar': False,
+        'unguarded_cache': False,
         'postlex': None,
         'parser': 'earley',
         'lexer': 'auto',
@@ -343,7 +352,9 @@ class Lark(Serialize, Generic[_Return_T]):
                     raise ConfigurationError("cache only works with parser='lalr' for now")
 
                 unhashable = ('transformer', 'postlex', 'lexer_callbacks', 'edit_terminals', '_plugins')
-                options_str = ''.join(k+str(v) for k, v in options.items() if k not in unhashable)
+                # unguarded_cache only changes how the cache file is opened, not what goes in it
+                skip = unhashable + ('unguarded_cache',)
+                options_str = ''.join(k+str(v) for k, v in options.items() if k not in skip)
                 from . import __version__
                 s = grammar + options_str + __version__ + str(sys.version_info[:2])
                 cache_sha256 = sha256_digest(s)
@@ -368,7 +379,7 @@ class Lark(Serialize, Generic[_Return_T]):
 
                 old_options = self.options
                 try:
-                    with FS.open(cache_fn, 'rb') as f:
+                    with FS.open(cache_fn, 'rb', unguarded=self.options.unguarded_cache) as f:
                         logger.debug('Loading grammar from cache: %s', cache_fn)
                         # Remove options that aren't relevant for loading from cache
                         for name in (set(options) - _LOAD_ALLOWED_OPTIONS):
@@ -485,7 +496,7 @@ class Lark(Serialize, Generic[_Return_T]):
         if cache_fn:
             logger.debug('Saving grammar to cache: %s', cache_fn)
             try:
-                with FS.open(cache_fn, 'wb') as f:
+                with FS.open(cache_fn, 'wb', unguarded=self.options.unguarded_cache) as f:
                     assert cache_sha256 is not None
                     f.write(cache_sha256.encode('utf8') + b'\n')
                     pickle.dump(used_files, f)
