@@ -4,7 +4,7 @@ import os
 from unittest import TestCase, main
 
 from lark import Lark, Token, Tree, ParseError, UnexpectedInput
-from lark.load_grammar import GrammarError, GRAMMAR_ERRORS, find_grammar_errors, list_grammar_imports
+from lark.load_grammar import GrammarError, GRAMMAR_ERRORS, GRAMMAR_CHAR_ERRORS, find_grammar_errors, list_grammar_imports
 from lark.load_grammar import FromPackageLoader
 from lark.grammar import Symbol
 
@@ -21,6 +21,25 @@ class TestGrammar(TestCase):
                     assert msg in str(e)
                 else:
                     assert False, "example did not raise an error"
+
+    def test_char_errors(self):
+        for msg, examples in GRAMMAR_CHAR_ERRORS:
+            for example in examples:
+                try:
+                    p = Lark(example)
+                except GrammarError as e:
+                    assert msg in str(e)
+                    assert 'at line %d' % example.count('\n') in str(e)
+                else:
+                    assert False, "example did not raise an error"
+
+        # an unexpected character that isn't a literal still gets the generic message
+        try:
+            Lark('a: $\n')
+        except GrammarError as e:
+            assert 'Unexpected input' in str(e)
+        else:
+            assert False, "example did not raise an error"
 
     def test_empty_literal(self):
         # Issues #888
